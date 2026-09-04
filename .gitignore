@@ -1,0 +1,26 @@
+agent/
+docs/
+
+# Dependencies and generated outputs
+node_modules/
+.nuxt/
+.output/
+dist/
+build/
+.gradle/
+
+# Local configuration and data
+.env.local
+data/
+backups/
+secrets/*.txt
+*.db
+*.db-shm
+*.db-wal
+
+# IDE and OS files
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db

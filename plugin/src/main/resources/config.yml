@@ -1,0 +1,31 @@
+# Registration limits. Values are validated before the first scan starts.
+limits:
+  max-volume: 262144
+  max-edge-length: 128
+  max-containers-per-region: 2000
+  max-regions-per-player: 10
+
+# The initial scan does no chunk loading. It advances by this many blocks per tick.
+initial-scan:
+  blocks-per-tick: 2048
+
+storage:
+  regions-file: regions.yml
+
+# Remote synchronization is opt-in. The API key is never written to logs or queue files.
+sync:
+  enabled: false
+  endpoint: "https://example.invalid/api/plugin/containers/batch"
+  api-key: ""
+  # Optional server row identifier issued by the web application.
+  server-id: ""
+  interval-seconds: 60
+  max-batch-containers: 500
+  retry-initial-seconds: 5
+  retry-max-seconds: 300
+  queue-file: pending-sync.yml
+  metrics-log-interval-seconds: 300
+
+# Public HTTPS URL for player authentication APIs. It is normally the same public hostname as sync.endpoint.
+web:
+  public-api-url: "https://example.invalid/"

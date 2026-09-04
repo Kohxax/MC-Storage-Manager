@@ -1,0 +1,33 @@
+name: MC-Storage-Manager
+version: ${version}
+main: dev.bokukoha.mcstoragemanager.MCStorageManagerPlugin
+api-version: '26.2'
+description: Storage management tools with WorldEdit integration.
+author: Bokukoha
+depend:
+  - WorldEdit
+permissions:
+  storage.region.create:
+    description: Allows creating storage regions.
+    default: op
+  storage.region.manage.own:
+    description: Allows managing storage regions owned by the player.
+    default: op
+  storage.region.manage.any:
+    description: Allows managing any storage region.
+    default: op
+  storage.web.login:
+    description: Allows creating a web login link.
+    default: true
+  storage.admin:
+    description: Grants all MC Storage Manager permissions.
+    default: op
+    children:
+      storage.region.create: true
+      storage.region.manage.own: true
+      storage.region.manage.any: true
+      storage.web.login: true
+commands:
+  storage:
+    description: Creates and manages storage regions and web access.
+    usage: /storage create <name> | /storage web [revoke]
