@@ -1,6 +1,8 @@
 agent/
 docs/
 
+.editorconfig
+
 # Dependencies and generated outputs
 node_modules/
 .nuxt/
