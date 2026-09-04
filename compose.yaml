@@ -35,17 +35,10 @@ services:
       - tunnel
       - --no-autoupdate
       - run
-      - --token-file
-      - /run/secrets/cloudflared_token
+      - --token
+      - ${CLOUDFLARED_TOKEN}
     depends_on:
       web:
         condition: service_healthy
-    secrets:
-      - cloudflared_token
-
-secrets:
-  cloudflared_token:
-    file: ./secrets/cloudflared-token.txt
-
 volumes:
   web_data:
