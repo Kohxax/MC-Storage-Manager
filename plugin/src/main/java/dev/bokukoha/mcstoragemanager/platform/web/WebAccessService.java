@@ -5,6 +5,8 @@ import java.util.UUID;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
 import java.util.logging.Level;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.event.ClickEvent;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 
@@ -35,7 +37,8 @@ public final class WebAccessService {
                         current.sendMessage("WebログインURLを発行できませんでした。管理者に連絡してください。");
                         return;
                     }
-                    current.sendMessage("あなた専用のWebログインURL（5分間有効）: " + url);
+                    current.sendMessage(Component.text("あなた専用のWebログインURL（5分間有効）: ")
+                            .append(Component.text(url).clickEvent(ClickEvent.openUrl(url))));
                 }));
     }
 
