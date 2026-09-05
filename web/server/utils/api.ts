@@ -113,6 +113,9 @@ export function defineApiHandler<T>(handler: (event: H3Event) => T | Promise<T>)
     try {
       return await handler(event);
     } catch (error) {
+      if (!(error instanceof ApiRequestError) && !(error instanceof RevisionConflictError)) {
+        console.error(`[API ${getApiRequestId(event)}] Unexpected request failure`, error);
+      }
       return apiError(event, error);
     }
   });

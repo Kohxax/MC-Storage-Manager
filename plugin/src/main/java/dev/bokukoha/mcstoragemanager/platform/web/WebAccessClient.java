@@ -14,6 +14,7 @@ import java.util.regex.Pattern;
 
 /** HTTP-only adapter for the plugin authentication endpoints. It has no Bukkit dependencies. */
 public final class WebAccessClient {
+    private static final int MAX_ERROR_BODY_LENGTH = 1024;
     private static final Pattern URL_FIELD = Pattern.compile("\\\"url\\\"\\s*:\\s*\\\"((?:\\\\.|[^\\\"])*)\\\"");
     private final HttpClient client;
     private final URI apiBaseUrl;
@@ -21,7 +22,12 @@ public final class WebAccessClient {
     private final String apiKey;
 
     public WebAccessClient(URI apiBaseUrl, String serverId, String apiKey) {
-        this(HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(15)).build(), apiBaseUrl, serverId, apiKey);
+        this(HttpClient.newBuilder()
+                // Nitro's HTTP development server resets Java's cleartext HTTP/2 upgrade request.
+                // HTTP/1.1 works for both local HTTP development and production HTTPS endpoints.
+                .version(HttpClient.Version.HTTP_1_1)
+                .connectTimeout(Duration.ofSeconds(15))
+                .build(), apiBaseUrl, serverId, apiKey);
     }
 
     WebAccessClient(HttpClient client, URI apiBaseUrl, String serverId, String apiKey) {
@@ -52,12 +58,37 @@ public final class WebAccessClient {
                 .POST(HttpRequest.BodyPublishers.ofString(payload))
                 .build();
         return client.sendAsync(request, HttpResponse.BodyHandlers.ofString())
-                .thenApply(response -> {
+                .handle((response, error) -> {
+                    if (error != null) {
+                        Throwable cause = unwrap(error);
+                        String detail = cause.getMessage();
+                        throw new IllegalStateException("Web API request failed: POST " + request.uri() + " ("
+                                + cause.getClass().getSimpleName()
+                                + (detail == null || detail.isBlank() ? "" : ": " + detail) + ")", cause);
+                    }
                     if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                        throw new IllegalStateException("Web API returned HTTP " + response.statusCode());
+                        String requestId = response.headers().firstValue("x-request-id").orElse("not provided");
+                        throw new IllegalStateException("Web API returned HTTP " + response.statusCode()
+                                + " for POST " + request.uri() + " (request ID: " + requestId
+                                + ", response: " + errorBody(response.body()) + ")");
                     }
                     return response.body();
                 });
+    }
+
+    private static Throwable unwrap(Throwable error) {
+        Throwable current = error;
+        while (current instanceof java.util.concurrent.CompletionException && current.getCause() != null) {
+            current = current.getCause();
+        }
+        return current;
+    }
+
+    private static String errorBody(String body) {
+        if (body == null || body.isBlank()) return "<empty>";
+        String sanitized = body.replaceAll("[\\r\\n\\t]+", " ").trim();
+        if (sanitized.length() <= MAX_ERROR_BODY_LENGTH) return sanitized;
+        return sanitized.substring(0, MAX_ERROR_BODY_LENGTH) + "...";
     }
 
     private static String readUrl(String responseBody) {

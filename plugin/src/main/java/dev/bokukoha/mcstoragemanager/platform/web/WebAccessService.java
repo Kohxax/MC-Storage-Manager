@@ -2,6 +2,9 @@ package dev.bokukoha.mcstoragemanager.platform.web;
 
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.ExecutionException;
+import java.util.logging.Level;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 
@@ -28,8 +31,7 @@ public final class WebAccessService {
                     Player current = plugin.getServer().getPlayer(playerId);
                     if (current == null || !current.isOnline()) return;
                     if (error != null) {
-                        plugin.getLogger().warning("Could not create web login link for " + playerId + ": "
-                                + error.getClass().getSimpleName());
+                        logFailure("create web login link", playerId, error);
                         current.sendMessage("WebログインURLを発行できませんでした。管理者に連絡してください。");
                         return;
                     }
@@ -45,12 +47,29 @@ public final class WebAccessService {
                     Player current = plugin.getServer().getPlayer(playerId);
                     if (current == null || !current.isOnline()) return;
                     if (error != null) {
-                        plugin.getLogger().warning("Could not revoke web sessions for " + playerId + ": "
-                                + error.getClass().getSimpleName());
+                        logFailure("revoke web sessions", playerId, error);
                         current.sendMessage("Webセッションを失効できませんでした。管理者に連絡してください。");
                         return;
                     }
                     current.sendMessage("あなたのすべてのWebセッションを失効しました。");
                 }));
+    }
+
+    private void logFailure(String operation, UUID playerId, Throwable error) {
+        Throwable cause = unwrap(error);
+        String detail = cause.getMessage();
+        String description = cause.getClass().getSimpleName()
+                + (detail == null || detail.isBlank() ? "" : ": " + detail);
+        plugin.getLogger().log(Level.WARNING,
+                "Could not " + operation + " for " + playerId + ": " + description, cause);
+    }
+
+    private static Throwable unwrap(Throwable error) {
+        Throwable current = error;
+        while ((current instanceof CompletionException || current instanceof ExecutionException)
+                && current.getCause() != null) {
+            current = current.getCause();
+        }
+        return current;
     }
 }
