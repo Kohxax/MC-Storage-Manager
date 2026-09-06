@@ -3,7 +3,7 @@ import { deleteCookie, getCookie, getHeader, setCookie } from 'h3';
 import { API_ERROR_CODES } from '../../shared/types/api';
 import { nowIsoDateTime } from '../../shared/types/datetime';
 import { ApiRequestError } from '../utils/api';
-import { getDatabaseHandle } from '../db/client';
+import { getDatabaseHandle, type AppDatabase } from '../db/client';
 import { LoginTokenRepository } from '../db/repositories/login-tokens';
 import { PlayerRepository } from '../db/repositories/players';
 import { ServerRepository } from '../db/repositories/servers';
@@ -30,8 +30,18 @@ export interface WebAuthContext {
   permissions: string[];
 }
 
+export interface RedeemedLoginToken {
+  session: WebAuthContext['session'];
+  player: WebAuthContext['player'];
+  serverId: string;
+  permissions: string[];
+  rawSession: string;
+}
+
 function cookieSecure(): boolean {
-  return process.env.COOKIE_SECURE === 'true' || process.env.NODE_ENV === 'production';
+  // Public HTTPS deployments opt in through COOKIE_SECURE=true.  Do not infer
+  // this from NODE_ENV: a production build can also be served on local HTTP.
+  return process.env.COOKIE_SECURE === 'true';
 }
 
 function sessionCookieOptions() {
@@ -133,33 +143,52 @@ export function requireWebSession(event: H3Event): WebAuthContext {
   return context;
 }
 
-export function redeemLoginToken(event: H3Event, rawToken: string): WebAuthContext {
-  enforceRateLimit(event, 'auth-redeem', 5);
+/**
+ * Exchanges a one-time login token and creates its session atomically.
+ * Any validation or persistence failure rolls the token consumption back.
+ */
+export function redeemLoginTokenInDatabase(database: AppDatabase, rawToken: string): RedeemedLoginToken {
   if (!/^[A-Za-z0-9_-]{40,128}$/.test(rawToken)) {
     throw new ApiRequestError(API_ERROR_CODES.UNAUTHORIZED, 'The login token is invalid or expired.', 401);
   }
-  const database = getDatabaseHandle().db;
-  const token = new LoginTokenRepository(database).consume(hashOpaqueToken(rawToken));
-  if (!token?.playerId) {
-    throw new ApiRequestError(API_ERROR_CODES.UNAUTHORIZED, 'The login token is invalid or expired.', 401);
-  }
-  const player = new PlayerRepository(database).findById(token.playerId);
-  if (!player) {
-    throw new ApiRequestError(API_ERROR_CODES.UNAUTHORIZED, 'The login token is invalid or expired.', 401);
-  }
-  assertPermission(database, player, PERMISSIONS.WEB_LOGIN, token.serverId);
   const rawSession = createOpaqueToken(32);
   const expiresAt = new Date(Date.now() + SESSION_TTL_SECONDS * 1000).toISOString();
-  const session = new SessionRepository(database).create({
-    serverId: token.serverId,
-    playerId: player.id,
-    tokenHash: hashOpaqueToken(rawSession),
-    expiresAt,
+  const loginTokens = new LoginTokenRepository(database);
+  const players = new PlayerRepository(database);
+  const sessions = new SessionRepository(database);
+
+  return database.transaction((transaction) => {
+    const token = loginTokens.consumeIn(transaction, hashOpaqueToken(rawToken));
+    if (!token?.playerId) {
+      throw new ApiRequestError(API_ERROR_CODES.UNAUTHORIZED, 'The login token is invalid or expired.', 401);
+    }
+    const player = players.findByIdIn(transaction, token.playerId);
+    if (!player) {
+      throw new ApiRequestError(API_ERROR_CODES.UNAUTHORIZED, 'The login token is invalid or expired.', 401);
+    }
+    assertPermission(transaction, player, PERMISSIONS.WEB_LOGIN, token.serverId);
+    const session = sessions.createIn(transaction, {
+      serverId: token.serverId,
+      playerId: player.id,
+      tokenHash: hashOpaqueToken(rawSession),
+      expiresAt,
+    });
+    const permissions = getPlayerPermissions(transaction, player, token.serverId);
+    return { session, player, serverId: token.serverId, permissions, rawSession };
   });
-  setCookie(event, SESSION_COOKIE_NAME, rawSession, sessionCookieOptions());
+}
+
+export function redeemLoginToken(event: H3Event, rawToken: string): WebAuthContext {
+  enforceRateLimit(event, 'auth-redeem', 5);
+  const redeemed = redeemLoginTokenInDatabase(getDatabaseHandle().db, rawToken);
+  setCookie(event, SESSION_COOKIE_NAME, redeemed.rawSession, sessionCookieOptions());
   issueCsrfToken(event);
-  const permissions = getPlayerPermissions(database, player, token.serverId);
-  const context = { session, player, serverId: token.serverId, permissions };
+  const context = {
+    session: redeemed.session,
+    player: redeemed.player,
+    serverId: redeemed.serverId,
+    permissions: redeemed.permissions,
+  };
   event.context.webAuth = context;
   return context;
 }

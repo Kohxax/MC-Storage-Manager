@@ -1,5 +1,5 @@
 import { and, eq } from 'drizzle-orm';
-import type { AppDatabase } from '../client';
+import type { AppDatabase, DatabaseExecutor } from '../client';
 import {
   playerServerPermissions,
   players,
@@ -21,7 +21,11 @@ export class PlayerRepository {
   constructor(private readonly database: AppDatabase) {}
 
   findById(id: string): Player | undefined {
-    return this.database.select().from(players).where(eq(players.id, id)).get();
+    return this.findByIdIn(this.database, id);
+  }
+
+  findByIdIn(database: DatabaseExecutor, id: string): Player | undefined {
+    return database.select().from(players).where(eq(players.id, id)).get();
   }
 
   findByMinecraftUuid(minecraftUuid: string): Player | undefined {

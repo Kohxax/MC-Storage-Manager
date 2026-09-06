@@ -1,5 +1,5 @@
 import { and, eq, isNull, sql } from 'drizzle-orm';
-import type { AppDatabase } from '../client';
+import type { AppDatabase, DatabaseExecutor } from '../client';
 import { webSessions, type NewWebSession, type WebSession } from '../schema';
 import { createEntityId } from '../../../shared/types/id';
 import { nowIsoDateTime } from '../../../shared/types/datetime';
@@ -15,6 +15,10 @@ export class SessionRepository {
   constructor(private readonly database: AppDatabase) {}
 
   create(input: CreateSessionInput): WebSession {
+    return this.createIn(this.database, input);
+  }
+
+  createIn(database: DatabaseExecutor, input: CreateSessionInput): WebSession {
     const now = nowIsoDateTime();
     const values: NewWebSession = {
       id: createEntityId(),
@@ -27,7 +31,7 @@ export class SessionRepository {
       updatedAt: now,
       revision: 0,
     };
-    const [created] = this.database.insert(webSessions).values(values).returning().all();
+    const [created] = database.insert(webSessions).values(values).returning().all();
     if (!created) throw new Error('Failed to create session.');
     return created;
   }

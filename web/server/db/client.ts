@@ -6,6 +6,8 @@ import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import { schema } from './schema';
 
 export type AppDatabase = BetterSQLite3Database<typeof schema>;
+/** Query methods shared by the root database and a synchronous transaction. */
+export type DatabaseExecutor = Pick<AppDatabase, 'select' | 'insert' | 'update' | 'delete'>;
 
 export interface DatabaseHandle {
   db: AppDatabase;

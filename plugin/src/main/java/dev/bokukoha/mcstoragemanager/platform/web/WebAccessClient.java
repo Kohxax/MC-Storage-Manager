@@ -32,7 +32,7 @@ public final class WebAccessClient {
 
     WebAccessClient(HttpClient client, URI apiBaseUrl, String serverId, String apiKey) {
         this.client = Objects.requireNonNull(client, "client");
-        this.apiBaseUrl = requireHttpUrl(apiBaseUrl);
+        this.apiBaseUrl = normalizeApiBaseUrl(apiBaseUrl);
         this.serverId = requireText(serverId, "serverId");
         this.apiKey = requireText(apiKey, "apiKey");
     }
@@ -91,22 +91,27 @@ public final class WebAccessClient {
         return sanitized.substring(0, MAX_ERROR_BODY_LENGTH) + "...";
     }
 
-    private static String readUrl(String responseBody) {
+    static String readUrl(String responseBody) {
         Matcher matcher = URL_FIELD.matcher(responseBody);
         if (!matcher.find()) throw new IllegalStateException("Web API did not return a login URL");
         String url = unescapeJsonString(matcher.group(1));
-        URI parsed = requireHttpUrl(URI.create(url));
+        URI parsed = requireHttpUrl(URI.create(url), "login URL");
         return parsed.toString();
     }
 
-    private static URI requireHttpUrl(URI value) {
-        Objects.requireNonNull(value, "apiBaseUrl");
+    private static URI normalizeApiBaseUrl(URI value) {
+        URI validated = requireHttpUrl(value, "apiBaseUrl");
+        String text = validated.toString();
+        return URI.create(text.endsWith("/") ? text : text + "/");
+    }
+
+    private static URI requireHttpUrl(URI value, String name) {
+        Objects.requireNonNull(value, name);
         if (!value.isAbsolute() || !("https".equalsIgnoreCase(value.getScheme()) || "http".equalsIgnoreCase(value.getScheme()))
                 || value.getHost() == null) {
             throw new IllegalArgumentException("URL must be an absolute HTTP(S) URL");
         }
-        String text = value.toString();
-        return URI.create(text.endsWith("/") ? text : text + "/");
+        return value;
     }
 
     private static String requireText(String value, String name) {

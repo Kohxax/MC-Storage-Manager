@@ -1,5 +1,5 @@
 import { and, eq, gt, isNull } from 'drizzle-orm';
-import type { AppDatabase } from '../client';
+import type { AppDatabase, DatabaseExecutor } from '../client';
 import { loginTokens, type LoginToken, type NewLoginToken } from '../schema';
 import { createEntityId } from '../../../shared/types/id';
 import { nowIsoDateTime } from '../../../shared/types/datetime';
@@ -24,7 +24,12 @@ export class LoginTokenRepository {
 
   /** Atomically consumes a token only while it is unused and unexpired. */
   consume(tokenHash: string, now = nowIsoDateTime()): LoginToken | undefined {
-    const [consumed] = this.database
+    return this.consumeIn(this.database, tokenHash, now);
+  }
+
+  /** Atomically consumes a token as part of a caller-owned transaction. */
+  consumeIn(database: DatabaseExecutor, tokenHash: string, now = nowIsoDateTime()): LoginToken | undefined {
+    const [consumed] = database
       .update(loginTokens)
       .set({ consumedAt: now })
       .where(and(eq(loginTokens.tokenHash, tokenHash), isNull(loginTokens.consumedAt), gt(loginTokens.expiresAt, now)))

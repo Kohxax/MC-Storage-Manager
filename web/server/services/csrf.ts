@@ -7,7 +7,7 @@ import { constantTimeStringEqual, createOpaqueToken } from './security';
 export const CSRF_COOKIE_NAME = 'mcsm_csrf';
 
 function cookieSecure(): boolean {
-  return process.env.COOKIE_SECURE === 'true' || process.env.NODE_ENV === 'production';
+  return process.env.COOKIE_SECURE === 'true';
 }
 
 export function issueCsrfToken(event: H3Event): string {

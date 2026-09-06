@@ -46,7 +46,7 @@ SQLite のパスは `DATABASE_URL` で変更できます（既定値は `./data/
 
 Web 向けの保護された API は login token redeem 後に HttpOnly セッション Cookie と
 CSRF Cookie を発行します。状態変更リクエストには `X-CSRF-Token` ヘッダーが必要です。
-本番では `COOKIE_SECURE=true`（または `NODE_ENV=production`）にして Secure Cookie を有効にしてください。
+HTTPSで公開する本番環境では `COOKIE_SECURE=true` にして Secure Cookie を有効にしてください。
 
 サーバー登録、APIキーのローテーション、SQLiteバックアップ・復元は `pnpm server:admin`、
 `pnpm db:backup`、`pnpm db:restore` を使います。詳細は `../docs/OPERATIONS.md` を参照してください。

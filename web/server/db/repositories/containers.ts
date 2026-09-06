@@ -1,11 +1,10 @@
 import { and, eq } from 'drizzle-orm';
-import type { AppDatabase } from '../client';
+import type { AppDatabase, DatabaseExecutor } from '../client';
 import { containerItems, containers, type Container, type ContainerItem } from '../schema';
 import { createEntityId } from '../../../shared/types/id';
 import { nowIsoDateTime } from '../../../shared/types/datetime';
 
-/** The subset shared by the root database and a synchronous Drizzle transaction. */
-export type DatabaseExecutor = Pick<AppDatabase, 'select' | 'insert' | 'update' | 'delete'>;
+export type { DatabaseExecutor } from '../client';
 
 export interface ContainerItemInput {
   itemKey: string;

@@ -1,7 +1,7 @@
 import { and, eq } from 'drizzle-orm';
 import type { Player, Region } from '../db/schema';
 import { playerServerPermissions, regionAcl } from '../db/schema';
-import type { AppDatabase } from '../db/client';
+import type { DatabaseExecutor } from '../db/client';
 import { API_ERROR_CODES } from '../../shared/types/api';
 import { ApiRequestError } from '../utils/api';
 
@@ -19,7 +19,7 @@ export const PERMISSIONS = {
  * The legacy player column is used only for unscoped records and old sessions;
  * server-bound records must have an explicit row in player_server_permissions.
  */
-export function getPlayerPermissions(database: AppDatabase, player: Player, serverId?: string | null): string[] {
+export function getPlayerPermissions(database: DatabaseExecutor, player: Player, serverId?: string | null): string[] {
   if (serverId) {
     return (
       database
@@ -32,7 +32,7 @@ export function getPlayerPermissions(database: AppDatabase, player: Player, serv
   return Array.isArray(player.permissions) ? [...player.permissions] : [];
 }
 
-function isLinkedToServer(database: AppDatabase, player: Player, serverId: string): boolean {
+function isLinkedToServer(database: DatabaseExecutor, player: Player, serverId: string): boolean {
   return Boolean(
     database
       .select({ playerId: playerServerPermissions.playerId })
@@ -42,11 +42,11 @@ function isLinkedToServer(database: AppDatabase, player: Player, serverId: strin
   );
 }
 
-function hasPermission(database: AppDatabase, player: Player, permission: string, serverId?: string | null): boolean {
+function hasPermission(database: DatabaseExecutor, player: Player, permission: string, serverId?: string | null): boolean {
   return getPlayerPermissions(database, player, serverId).includes(permission);
 }
 
-function isAdmin(database: AppDatabase, player: Player, serverId?: string | null): boolean {
+function isAdmin(database: DatabaseExecutor, player: Player, serverId?: string | null): boolean {
   return hasPermission(database, player, PERMISSIONS.ADMIN, serverId);
 }
 
@@ -55,7 +55,7 @@ function isAdmin(database: AppDatabase, player: Player, serverId?: string | null
  * sessions. Web API callers pass it explicitly, including null, so a session
  * created for server A cannot enumerate server B's regions.
  */
-function isRegionInSessionScope(database: AppDatabase, player: Player, region: Region, currentServerId?: string | null): boolean {
+function isRegionInSessionScope(database: DatabaseExecutor, player: Player, region: Region, currentServerId?: string | null): boolean {
   if (!region.serverId) return true;
   if (currentServerId !== undefined && currentServerId !== region.serverId) return false;
   return isLinkedToServer(database, player, region.serverId);
@@ -67,7 +67,7 @@ function permissionServerId(region: Region, currentServerId?: string | null): st
 }
 
 export function canViewRegion(
-  database: AppDatabase,
+  database: DatabaseExecutor,
   player: Player,
   region: Region,
   currentServerId?: string | null,
@@ -92,7 +92,7 @@ export function canViewRegion(
 }
 
 export function canManageRegion(
-  database: AppDatabase,
+  database: DatabaseExecutor,
   player: Player,
   region: Region,
   currentServerId?: string | null,
@@ -115,7 +115,7 @@ export function canManageRegion(
 
 /** Deliberately returns NOT_FOUND for unauthorized resources to avoid IDOR enumeration. */
 export function assertRegionView(
-  database: AppDatabase,
+  database: DatabaseExecutor,
   player: Player,
   region: Region | undefined,
   currentServerId?: string | null,
@@ -127,7 +127,7 @@ export function assertRegionView(
 }
 
 export function assertRegionManage(
-  database: AppDatabase,
+  database: DatabaseExecutor,
   player: Player,
   region: Region | undefined,
   currentServerId?: string | null,
@@ -146,7 +146,7 @@ export function assertPluginRegion(region: Region | undefined, serverId: string)
 }
 
 export function assertPermission(
-  database: AppDatabase,
+  database: DatabaseExecutor,
   player: Player,
   permission: string,
   serverId?: string | null,
