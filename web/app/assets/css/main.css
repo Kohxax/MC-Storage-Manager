@@ -7,6 +7,7 @@
   --md-primary: 63 81 181; --md-on-primary: 255 255 255;
   --md-surface: 248 249 255; --md-surface-container: 238 240 250; --md-surface-container-high: 228 231 242;
   --md-on-surface: 28 29 36; --md-on-surface-variant: 69 70 79; --md-outline: 118 119 129; --md-error: 186 26 26;
+  --ui-text-inverted: rgb(var(--md-on-primary));
 }
 :root[data-theme='dark'] {
   color-scheme: dark;
@@ -23,9 +24,9 @@
   }
 }
 @theme inline {
-  --color-primary: rgb(var(--md-primary) / <alpha-value>); --color-on-primary: rgb(var(--md-on-primary) / <alpha-value>);
-  --color-surface: rgb(var(--md-surface) / <alpha-value>); --color-surface-container: rgb(var(--md-surface-container) / <alpha-value>); --color-surface-container-high: rgb(var(--md-surface-container-high) / <alpha-value>);
-  --color-on-surface: rgb(var(--md-on-surface) / <alpha-value>); --color-on-surface-variant: rgb(var(--md-on-surface-variant) / <alpha-value>); --color-outline: rgb(var(--md-outline) / <alpha-value>); --color-error: rgb(var(--md-error) / <alpha-value>);
+  --color-primary: rgb(var(--md-primary)); --color-on-primary: rgb(var(--md-on-primary));
+  --color-surface: rgb(var(--md-surface)); --color-surface-container: rgb(var(--md-surface-container)); --color-surface-container-high: rgb(var(--md-surface-container-high));
+  --color-on-surface: rgb(var(--md-on-surface)); --color-on-surface-variant: rgb(var(--md-on-surface-variant)); --color-outline: rgb(var(--md-outline)); --color-error: rgb(var(--md-error));
 }
 @layer base {
   html { min-width: 320px; background: rgb(var(--md-surface)); }
