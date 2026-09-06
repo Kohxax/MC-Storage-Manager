@@ -85,6 +85,35 @@ class ContainerSyncServiceTest {
     }
 
     @Test
+    void failedRegionDoesNotStarveDirtyWorkFromAnotherRegion() {
+        ContainerSyncService service = service(10, new MemoryStore(), ids(FIRST_BATCH, SECOND_BATCH));
+        service.markDirty(snapshot(containerId(0), "minecraft:stone", 1));
+        SyncBatch failed = service.nextBatch(NOW).orElseThrow();
+        assertTrue(service.recordFailure(failed.id(), NOW));
+
+        UUID otherRegionId = UUID.fromString("10000000-0000-0000-0000-000000000002");
+        ContainerId otherContainer = new ContainerId(otherRegionId, new BlockPosition(0, 64, 0));
+        service.markDirty(snapshot(otherContainer, "minecraft:dirt", 1));
+
+        SyncBatch other = service.nextBatch(NOW.plusSeconds(1)).orElseThrow();
+        assertEquals(otherRegionId, other.containers().getFirst().containerId().regionId());
+        assertEquals(SECOND_BATCH, other.id());
+    }
+
+    @Test
+    void newerDirtySnapshotWaitsForOlderPendingBatchFromTheSameRegion() {
+        ContainerSyncService service = service(10, new MemoryStore(), ids(FIRST_BATCH, SECOND_BATCH));
+        ContainerId id = containerId(0);
+        service.markDirty(snapshot(id, "minecraft:stone", 1));
+        SyncBatch first = service.nextBatch(NOW).orElseThrow();
+        assertTrue(service.recordFailure(first.id(), NOW));
+        service.markDirty(snapshot(id, "minecraft:diamond", 2));
+
+        assertTrue(service.nextBatch(NOW.plusSeconds(1)).isEmpty());
+        assertEquals(first.id(), service.nextBatch(NOW.plusSeconds(2)).orElseThrow().id());
+    }
+
+    @Test
     void acknowledgedBatchIsRemovedAndRepeatedAcknowledgementIsIdempotent() {
         ContainerSyncService service = service(10, new MemoryStore(), ids(FIRST_BATCH));
         service.markDirty(snapshot(containerId(0), "minecraft:stone", 1));

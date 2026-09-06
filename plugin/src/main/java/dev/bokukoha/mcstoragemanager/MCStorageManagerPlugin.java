@@ -109,11 +109,27 @@ public final class MCStorageManagerPlugin extends JavaPlugin {
             return;
         }
 
+        // Requeue complete snapshots for containers belonging to regions restored from disk.
+        // This repairs any queue lost before a restart and makes startup converge even when no
+        // container change event is emitted for an already-loaded container.
+        for (RegisteredRegion region : registry.all()) {
+            queueInitialSnapshots(region, syncService);
+        }
+
         RegionCreationCoordinator coordinator = new RegionCreationCoordinator(this, registry, store, limits,
                 region -> {
                     queueInitialSnapshots(region, syncService);
                     if (regionSyncSender != null) {
-                        regionSyncSender.syncNewRegion(region, getServer().getPlayer(region.ownerId()));
+                        // The remote batch endpoint requires the region metadata to exist first.
+                        // Keep the first batch behind the metadata response to avoid a create race.
+                        regionSyncSender.syncNewRegion(region, getServer().getPlayer(region.ownerId()))
+                                .thenAccept(metadataSent -> {
+                                    if (Boolean.TRUE.equals(metadataSent) && batchSender != null) {
+                                        batchSender.sendNow();
+                                    }
+                                });
+                    } else if (batchSender != null) {
+                        batchSender.sendNow();
                     }
                 });
         PluginCommand storageCommand = getCommand("storage");
@@ -124,7 +140,10 @@ public final class MCStorageManagerPlugin extends JavaPlugin {
         }
         storageCommand.setExecutor(new StorageCommand(new WorldEditSelectionReader(worldEdit), coordinator,
                 createWebAccessService()));
-        getServer().getPluginManager().registerEvents(new ContainerChangeListener(this, registry, syncService), this);
+        getServer().getPluginManager().registerEvents(new ContainerChangeListener(this, registry, syncService,
+                () -> {
+                    if (batchSender != null) batchSender.sendNow();
+                }), this);
 
         if (getConfig().getBoolean("sync.enabled")) {
             try {
@@ -150,6 +169,9 @@ public final class MCStorageManagerPlugin extends JavaPlugin {
                 getServer().getPluginManager().disablePlugin(this);
                 return;
             }
+            // Startup snapshots are recovery work; only wake the batch sender once its HTTP
+            // client and scheduler have been initialized.
+            batchSender.sendNow();
         }
 
         getLogger().info(PluginIdentity.displayName() + " enabled.");

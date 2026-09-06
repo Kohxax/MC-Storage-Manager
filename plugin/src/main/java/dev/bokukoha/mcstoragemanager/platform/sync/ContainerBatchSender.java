@@ -26,6 +26,7 @@ public final class ContainerBatchSender {
     private final Function<UUID, String> worldUuidByRegion;
     private final HttpClient httpClient;
     private final AtomicBoolean inFlight = new AtomicBoolean();
+    private final AtomicBoolean wakeupQueued = new AtomicBoolean();
     private BukkitTask task;
 
     public ContainerBatchSender(JavaPlugin plugin, ContainerSyncService syncService, URI endpoint, String apiKey,
@@ -37,7 +38,8 @@ public final class ContainerBatchSender {
         this.apiKey = apiKey;
         this.serverId = serverId;
         this.worldUuidByRegion = worldUuidByRegion;
-        this.httpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(15)).build();
+        this.httpClient = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1)
+                .connectTimeout(Duration.ofSeconds(15)).build();
         long intervalTicks = Math.multiplyExact(intervalSeconds, 20L);
         task = plugin.getServer().getScheduler().runTaskTimerAsynchronously(plugin, this::sendIfReady, intervalTicks,
                 intervalTicks);
@@ -45,6 +47,15 @@ public final class ContainerBatchSender {
 
     public void stop() {
         if (task != null) task.cancel();
+    }
+
+    /** Wakes the sender promptly after a main-thread event queues a durable snapshot. */
+    public void sendNow() {
+        if (!wakeupQueued.compareAndSet(false, true)) return;
+        plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () -> {
+            wakeupQueued.set(false);
+            sendIfReady();
+        });
     }
 
     private void sendIfReady() {
@@ -63,23 +74,32 @@ public final class ContainerBatchSender {
                     .header("Idempotency-Key", batch.id().toString())
                     .POST(HttpRequest.BodyPublishers.ofString(toJson(batch, worldUuidByRegion)));
             if (!serverId.isBlank()) request.header("X-Server-Id", serverId);
-            httpClient.sendAsync(request.build(), HttpResponse.BodyHandlers.discarding())
+            httpClient.sendAsync(request.build(), HttpResponse.BodyHandlers.ofString())
                     .whenComplete((response, error) -> {
+                        boolean continueSending;
                         try {
                             if (error == null && response.statusCode() >= 200 && response.statusCode() < 300) {
                                 syncService.acknowledge(batch.id());
+                                continueSending = syncService.dirtyCount() > 0;
                             } else {
                                 syncService.recordFailure(batch.id(), Instant.now());
-                                String detail = error == null ? "HTTP " + response.statusCode() : error.getClass().getSimpleName();
-                                plugin.getLogger().fine("Storage sync batch " + batch.id() + " will retry after " + detail);
+                                String detail = error == null
+                                        ? "status=" + response.statusCode() + " body="
+                                                + HttpDiagnostics.body(response.body())
+                                        : HttpDiagnostics.exception(error);
+                                plugin.getLogger().warning("Storage sync batch failed id=" + batch.id()
+                                        + " (will retry): " + detail);
+                                continueSending = syncService.dirtyCount() > 0;
                             }
                         } finally {
                             inFlight.set(false);
                         }
+                        if (continueSending) sendNow();
                     });
         } catch (RuntimeException exception) {
             inFlight.set(false);
-            plugin.getLogger().warning("Could not prepare storage sync batch: " + exception.getMessage());
+            plugin.getLogger().warning("Could not prepare storage sync batch: "
+                    + HttpDiagnostics.exception(exception));
         }
     }
 

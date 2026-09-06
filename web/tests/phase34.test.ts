@@ -130,6 +130,11 @@ describe('phase 3–4 persistence contracts', () => {
       items: [{ itemKey: 'minecraft:stone', amount: 32 }],
     }];
     const first = service.saveContainerBatch(server.id, region.id, 'batch-0001', input);
+    const scanned = new RegionRepository(current.db).findById(region.id);
+    expect(scanned?.lastScanAt).toBeTruthy();
+    expect(scanned?.updatedAt).toBe(scanned?.lastScanAt);
+    // Operational scan activity must not make an in-progress Web edit stale.
+    expect(scanned?.revision).toBe(region.revision);
     const replay = service.saveContainerBatch(server.id, region.id, 'batch-0001', input);
     expect(first.idempotent).toBe(false);
     expect(replay.idempotent).toBe(true);

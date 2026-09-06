@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { getDatabaseHandle } from '../../../db/client';
 import { requirePluginAuth } from '../../../services/auth';
 import { RegionService } from '../../../services/regions';
+import { publishStorageEvent } from '../../../services/events';
 import { apiSuccess, defineApiHandler } from '../../../utils/api';
 import { readSchemaBody, requiredRouteId, revisionSchema } from '../../../utils/validation';
 
@@ -20,5 +21,6 @@ export default defineApiHandler(async (event) => {
   const body = await readSchemaBody(event, schema);
   const { revision, ...patch } = body;
   const region = new RegionService(getDatabaseHandle().db).updatePluginRegion(server.id, id, revision, patch);
+  publishStorageEvent(server.id, { type: 'region.updated', regionId: region.id });
   return apiSuccess(event, { region });
 });

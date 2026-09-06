@@ -50,22 +50,34 @@ public final class ContainerSyncService {
 
     /**
      * Returns the oldest retryable pending batch, or converts up to the configured limit of dirty
-     * snapshots into a new durable batch. Calling this method does not mark the batch as sent.
+     * snapshots from a region without an outstanding batch into a new durable batch. Calling this
+     * method does not mark the batch as sent.
      */
     public synchronized Optional<SyncBatch> nextBatch(Instant now) {
         Objects.requireNonNull(now, "now");
-        Optional<SyncBatch> oldestPending = pendingBatches.values().stream()
+        Optional<SyncBatch> readyPending = pendingBatches.values().stream()
+                .filter(batch -> batch.isReadyAt(now))
                 .min(Comparator.comparingLong(SyncBatch::revision));
-        if (oldestPending.isPresent()) {
-            SyncBatch batch = oldestPending.get();
-            return batch.isReadyAt(now) ? Optional.of(batch) : Optional.empty();
-        }
+        if (readyPending.isPresent()) return readyPending;
         if (dirtyContainers.isEmpty()) {
             return Optional.empty();
         }
 
+        // A region with an outstanding batch must not be selected here: if its newer dirty
+        // snapshot were delivered before the older batch, a late at-least-once retry could
+        // overwrite the newer state. Other regions remain eligible while that batch backs off.
+        var pendingRegions = pendingBatches.values().stream()
+                .flatMap(batch -> batch.containers().stream())
+                .map(snapshot -> snapshot.containerId().regionId())
+                .collect(java.util.stream.Collectors.toSet());
+        UUID regionId = dirtyContainers.values().stream()
+                .map(snapshot -> snapshot.containerId().regionId())
+                .filter(candidate -> !pendingRegions.contains(candidate))
+                .findFirst()
+                .orElse(null);
+        if (regionId == null) return Optional.empty();
+
         List<ContainerSnapshot> snapshots = new ArrayList<>(maximumBatchSize);
-        UUID regionId = dirtyContainers.values().iterator().next().containerId().regionId();
         var iterator = dirtyContainers.entrySet().iterator();
         while (iterator.hasNext() && snapshots.size() < maximumBatchSize) {
             ContainerSnapshot snapshot = iterator.next().getValue();

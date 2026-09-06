@@ -3,7 +3,7 @@ import type { RegionId } from '../../../shared/types/id';
 import { createEntityId } from '../../../shared/types/id';
 import { nowIsoDateTime } from '../../../shared/types/datetime';
 import { nextRevision, parseRevision, type Revision } from '../../../shared/types/revision';
-import type { AppDatabase } from '../client';
+import type { AppDatabase, DatabaseExecutor } from '../client';
 import { regions, type NewRegion, type Region } from '../schema';
 import { RevisionConflictError } from '../../../shared/types/revision';
 
@@ -83,6 +83,26 @@ export class RegionRepository {
 
   listAll(): Region[] {
     return this.database.select().from(regions).orderBy(desc(regions.updatedAt)).all();
+  }
+
+  /**
+   * Records a successful plugin scan without changing the metadata revision.
+   *
+   * Scan activity is operational metadata rather than a Web-edited field. It
+   * therefore must not invalidate a user's optimistic-concurrency token while
+   * they are renaming or deleting a region.
+   */
+  touchLastScanAtIn(database: DatabaseExecutor, id: string, scanAt = nowIsoDateTime()): Region {
+    const [updated] = database
+      .update(regions)
+      .set({ lastScanAt: scanAt, updatedAt: scanAt })
+      .where(eq(regions.id, id))
+      .returning()
+      .all();
+    if (!updated) {
+      throw new Error('Failed to update region scan timestamp.');
+    }
+    return updated;
   }
 
   update(id: RegionId | string, expectedRevision: Revision | number, input: UpdateRegionInput): Region {

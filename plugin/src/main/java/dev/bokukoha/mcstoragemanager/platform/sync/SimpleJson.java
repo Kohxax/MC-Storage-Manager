@@ -2,6 +2,7 @@ package dev.bokukoha.mcstoragemanager.platform.sync;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -31,14 +32,24 @@ final class SimpleJson {
     }
     private Map<String, Object> object() {
         index++; Map<String, Object> result = new LinkedHashMap<>(); white();
-        if (take('}')) return Map.copyOf(result);
+        if (take('}')) return immutableMap(result);
         do { white(); String key = string(); white(); need(':'); result.put(key, value()); white(); } while (take(','));
-        need('}'); return Map.copyOf(result);
+        need('}'); return immutableMap(result);
     }
     private List<Object> array() {
         index++; List<Object> result = new ArrayList<>(); white();
-        if (take(']')) return List.copyOf(result);
-        do { result.add(value()); white(); } while (take(',')); need(']'); return List.copyOf(result);
+        if (take(']')) return immutableList(result);
+        do { result.add(value()); white(); } while (take(',')); need(']'); return immutableList(result);
+    }
+
+    private static Map<String, Object> immutableMap(Map<String, Object> result) {
+        // Map.copyOf rejects null values, but JSON null is valid in both objects and arrays.
+        return Collections.unmodifiableMap(new LinkedHashMap<>(result));
+    }
+
+    private static List<Object> immutableList(List<Object> result) {
+        // List.copyOf has the same null restriction; preserve null while keeping parsed data immutable.
+        return Collections.unmodifiableList(new ArrayList<>(result));
     }
     private String string() {
         need('\"'); StringBuilder value = new StringBuilder();

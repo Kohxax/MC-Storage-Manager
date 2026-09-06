@@ -5,6 +5,7 @@ import dev.bokukoha.mcstoragemanager.core.region.RegionRegistry;
 import dev.bokukoha.mcstoragemanager.core.region.WorldIdentity;
 import dev.bokukoha.mcstoragemanager.core.sync.ContainerSyncService;
 import java.util.Optional;
+import java.util.Objects;
 import java.util.Set;
 import org.bukkit.World;
 import org.bukkit.block.Block;
@@ -24,11 +25,19 @@ public final class ContainerChangeListener implements Listener {
     private final JavaPlugin plugin;
     private final RegionRegistry regions;
     private final ContainerSyncService syncService;
+    private final Runnable triggerSend;
 
     public ContainerChangeListener(JavaPlugin plugin, RegionRegistry regions, ContainerSyncService syncService) {
+        this(plugin, regions, syncService, () -> { });
+    }
+
+    /** Called after a snapshot is durably queued to wake the asynchronous sender. */
+    public ContainerChangeListener(JavaPlugin plugin, RegionRegistry regions, ContainerSyncService syncService,
+                                   Runnable triggerSend) {
         this.plugin = plugin;
         this.regions = regions;
         this.syncService = syncService;
+        this.triggerSend = Objects.requireNonNull(triggerSend, "triggerSend");
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
@@ -75,7 +84,7 @@ public final class ContainerChangeListener implements Listener {
         Set<BlockPosition> originalComponent = TrackedContainer.componentPositions(block, state);
         String containerType = TrackedContainer.containerType(state);
         findRegion(block.getWorld(), position).ifPresent(region ->
-                syncService.markDirty(InventorySnapshotter.deleted(region.id(), position, containerType)));
+                markDirty(InventorySnapshotter.deleted(region.id(), position, containerType)));
         // A double chest becomes a single chest after this event. Capture its surviving half on
         // the next tick so the remote side receives both the old-ID deletion and new snapshot.
         plugin.getServer().getScheduler().runTask(plugin, () -> {
@@ -98,7 +107,7 @@ public final class ContainerChangeListener implements Listener {
 
     private void queueSnapshot(World world, BlockPosition position, String containerType, Inventory inventory) {
         findRegion(world, position).ifPresent(region ->
-                syncService.markDirty(InventorySnapshotter.snapshot(region.id(), position, containerType, inventory)));
+                markDirty(InventorySnapshotter.snapshot(region.id(), position, containerType, inventory)));
     }
 
     private void deleteNonCanonicalComponentIds(World world, Set<BlockPosition> positions, BlockPosition canonical,
@@ -106,9 +115,14 @@ public final class ContainerChangeListener implements Listener {
         for (BlockPosition position : positions) {
             if (!position.equals(canonical)) {
                 findRegion(world, position).ifPresent(region ->
-                        syncService.markDirty(InventorySnapshotter.deleted(region.id(), position, containerType)));
+                        markDirty(InventorySnapshotter.deleted(region.id(), position, containerType)));
             }
         }
+    }
+
+    private void markDirty(dev.bokukoha.mcstoragemanager.core.sync.ContainerSnapshot snapshot) {
+        syncService.markDirty(snapshot);
+        triggerSend.run();
     }
 
     private Optional<dev.bokukoha.mcstoragemanager.core.region.RegisteredRegion> findRegion(

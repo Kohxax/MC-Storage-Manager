@@ -37,7 +37,8 @@ public final class ChangePoller {
         this.apiBase = normalize(publicApiUrl);
         this.serverId = requireText(serverId, "serverId");
         this.apiKey = requireText(apiKey, "apiKey");
-        this.client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(15)).build();
+        this.client = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1)
+                .connectTimeout(Duration.ofSeconds(15)).build();
         task = plugin.getServer().getScheduler().runTaskTimerAsynchronously(plugin, this::poll, 40L,
                 Math.multiplyExact(intervalSeconds, 20L));
     }
@@ -51,7 +52,7 @@ public final class ChangePoller {
         request("changes?limit=50", "GET", null).whenComplete((body, error) -> {
             polling.set(false);
             if (error != null) {
-                plugin.getLogger().fine("Could not poll storage changes: " + error.getClass().getSimpleName());
+                plugin.getLogger().warning("Could not poll storage changes: " + HttpDiagnostics.exception(error));
                 return;
             }
             try {
@@ -60,7 +61,7 @@ public final class ChangePoller {
                     plugin.getServer().getScheduler().runTask(plugin, () -> applyOnMainThread(change));
                 }
             } catch (RuntimeException exception) {
-                plugin.getLogger().warning("Could not parse storage changes: " + exception.getMessage());
+                plugin.getLogger().warning("Could not parse storage changes: " + HttpDiagnostics.exception(exception));
             }
         });
     }
@@ -102,8 +103,8 @@ public final class ChangePoller {
         String payload = "{\"revision\":" + change.revision + ",\"success\":" + success + ",\"result\":" + result + "}";
         request("changes/" + URLEncoder.encode(change.id, StandardCharsets.UTF_8) + "/result", "POST", payload)
                 .exceptionally(error -> {
-                    plugin.getLogger().fine("Could not acknowledge storage change " + change.id + ": "
-                            + error.getClass().getSimpleName());
+                    plugin.getLogger().warning("Could not acknowledge storage change id=" + change.id + ": "
+                            + HttpDiagnostics.exception(error));
                     return null;
                 });
     }
@@ -117,7 +118,7 @@ public final class ChangePoller {
         else request.GET();
         return client.sendAsync(request.build(), HttpResponse.BodyHandlers.ofString()).thenApply(response -> {
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                throw new IllegalStateException("HTTP " + response.statusCode());
+                throw new HttpDiagnostics.HttpFailure(response.statusCode(), response.body());
             }
             return response.body();
         });

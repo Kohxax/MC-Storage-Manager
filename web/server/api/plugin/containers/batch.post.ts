@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { getDatabaseHandle } from '../../../db/client';
 import { requirePluginAuth } from '../../../services/auth';
 import { SyncService } from '../../../services/sync';
+import { publishStorageEvent } from '../../../services/events';
 import { apiSuccess, defineApiHandler } from '../../../utils/api';
 import { readSchemaBody } from '../../../utils/validation';
 
@@ -41,5 +42,9 @@ export default defineApiHandler(async (event) => {
     body.idempotencyKey,
     body.containers,
   );
+  if (!result.idempotent) {
+    // saveContainerBatch returns only after its transaction commits.
+    publishStorageEvent(server.id, { type: 'inventory.updated', regionId: body.regionId });
+  }
   return apiSuccess(event, result);
 });

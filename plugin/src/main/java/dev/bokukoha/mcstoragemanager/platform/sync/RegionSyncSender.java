@@ -10,8 +10,8 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicBoolean;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitTask;
@@ -27,7 +27,7 @@ public final class RegionSyncSender {
     private final String serverId;
     private final String apiKey;
     private final HttpClient client;
-    private final ConcurrentHashMap<UUID, AtomicBoolean> inFlight = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<UUID, CompletableFuture<Boolean>> inFlight = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<UUID, String> invalidPayloads = new ConcurrentHashMap<>();
     private BukkitTask task;
 
@@ -39,14 +39,15 @@ public final class RegionSyncSender {
         this.endpoint = apiBase(publicApiUrl).resolve("api/plugin/regions");
         this.serverId = requireText(serverId, "serverId");
         this.apiKey = requireText(apiKey, "apiKey");
-        this.client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(15)).build();
+        this.client = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1)
+                .connectTimeout(Duration.ofSeconds(15)).build();
         long period = Math.multiplyExact(intervalSeconds, 20L);
         task = plugin.getServer().getScheduler().runTaskTimer(plugin, this::syncAllFromMainThread, 20L, period);
     }
 
     /** Called after a successful local registration, while the owner is still available on the main thread. */
-    public void syncNewRegion(RegisteredRegion region, Player owner) {
-        send(capture(region, owner));
+    public CompletableFuture<Boolean> syncNewRegion(RegisteredRegion region, Player owner) {
+        return send(capture(region, owner));
     }
 
     /** Invalid saved regions remain absent from the local registry but are visible to the web API. */
@@ -84,13 +85,11 @@ public final class RegionSyncSender {
         return new RegionPayload(region, ownerCurrentName, ownerPermissions);
     }
 
-    private void send(RegionPayload payload) {
-        send(payload.region.id(), payload.toJson());
+    private CompletableFuture<Boolean> send(RegionPayload payload) {
+        return send(payload.region.id(), payload.toJson());
     }
 
-    private void send(UUID regionId, String payload) {
-        AtomicBoolean active = inFlight.computeIfAbsent(regionId, ignored -> new AtomicBoolean());
-        if (!active.compareAndSet(false, true)) return;
+    private CompletableFuture<Boolean> send(UUID regionId, String payload) {
         HttpRequest request = HttpRequest.newBuilder(endpoint)
                 .timeout(Duration.ofSeconds(30))
                 .header("Content-Type", "application/json")
@@ -98,13 +97,25 @@ public final class RegionSyncSender {
                 .header("X-Server-Id", serverId)
                 .POST(HttpRequest.BodyPublishers.ofString(payload))
                 .build();
-        client.sendAsync(request, HttpResponse.BodyHandlers.discarding()).whenComplete((response, error) -> {
-            active.set(false);
-            if (error != null || response.statusCode() < 200 || response.statusCode() >= 300) {
-                String detail = error == null ? "HTTP " + response.statusCode() : error.getClass().getSimpleName();
-                plugin.getLogger().fine("Region sync for " + regionId + " will retry: " + detail);
+        CompletableFuture<Boolean> result = new CompletableFuture<>();
+        CompletableFuture<Boolean> existing = inFlight.putIfAbsent(regionId, result);
+        if (existing != null) return existing;
+        client.sendAsync(request, HttpResponse.BodyHandlers.ofString()).whenComplete((response, error) -> {
+            try {
+                if (error != null || response.statusCode() < 200 || response.statusCode() >= 300) {
+                    String detail = error == null
+                            ? "status=" + response.statusCode() + " body=" + HttpDiagnostics.body(response.body())
+                            : HttpDiagnostics.exception(error);
+                    plugin.getLogger().warning("Region sync failed region=" + regionId + " (will retry): " + detail);
+                    result.complete(false);
+                } else {
+                    result.complete(true);
+                }
+            } finally {
+                inFlight.remove(regionId, result);
             }
         });
+        return result;
     }
 
     private static URI apiBase(URI value) {

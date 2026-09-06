@@ -1,5 +1,5 @@
-import type { AppDatabase } from '../db/client';
-import { ContainerRepository, type ContainerInput, type DatabaseExecutor } from '../db/repositories/containers';
+import type { AppDatabase, DatabaseExecutor } from '../db/client';
+import { ContainerRepository, type ContainerInput } from '../db/repositories/containers';
 import { ChangeRepository } from '../db/repositories/changes';
 import { PlayerRepository } from '../db/repositories/players';
 import { RegionRepository, type CreateRegionInput, type UpdateRegionInput } from '../db/repositories/regions';
@@ -155,12 +155,15 @@ export class RegionService {
         throw new ApiRequestError(API_ERROR_CODES.BAD_REQUEST, 'Container coordinates must be inside the region.', 400);
       }
     }
-    return {
-      region,
-      containers: transaction
-        ? this.containers.saveBatchInTransaction(transaction, region.id, inputs)
-        : this.containers.saveBatch(region.id, inputs),
+    const save = (database: DatabaseExecutor) => {
+      const containers = this.containers.saveBatchInTransaction(database, region.id, inputs);
+      // A scan timestamp is committed with the container changes. Keep this
+      // outside the metadata revision so normal Web optimistic concurrency is
+      // not invalidated by every plugin poll.
+      const scanRegion = this.regions.touchLastScanAtIn(database, region.id);
+      return { region: scanRegion, containers };
     };
+    return transaction ? save(transaction) : this.database.transaction(save);
   }
 
   canView(region: Region, player: Player, currentServerId?: string | null): boolean {

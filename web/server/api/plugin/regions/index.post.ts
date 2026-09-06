@@ -2,6 +2,8 @@ import { z } from 'zod';
 import { getDatabaseHandle } from '../../../db/client';
 import { requirePluginAuth } from '../../../services/auth';
 import { RegionService } from '../../../services/regions';
+import { publishStorageEvent } from '../../../services/events';
+import { RegionRepository } from '../../../db/repositories/regions';
 import { apiSuccess, defineApiHandler } from '../../../utils/api';
 import { readSchemaBody } from '../../../utils/validation';
 
@@ -28,7 +30,12 @@ const schema = z.object({
 export default defineApiHandler(async (event) => {
   const { server } = requirePluginAuth(event);
   const body = await readSchemaBody(event, schema);
+  const database = getDatabaseHandle().db;
   const { bounds, ...metadata } = body;
-  const region = new RegionService(getDatabaseHandle().db).syncPluginRegion(server.id, { ...metadata, ...bounds });
+  const before = new RegionRepository(database).findById(body.id);
+  const region = new RegionService(database).syncPluginRegion(server.id, { ...metadata, ...bounds });
+  if (!before || before.revision !== region.revision) {
+    publishStorageEvent(server.id, { type: before ? 'region.updated' : 'region.created', regionId: region.id });
+  }
   return apiSuccess(event, { region }, 201);
 });
